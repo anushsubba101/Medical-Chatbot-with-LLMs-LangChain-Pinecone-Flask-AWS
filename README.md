@@ -1,65 +1,62 @@
-# 🤖 LangGraph Chatbot
+# 🩺 Medical Chatbot with LLMs, LangChain, Pinecone, Flask & Render
 
-A conversational AI chatbot built with **LangGraph** and **Groq LLMs**, featuring tool use, multi-turn memory, multi-threaded conversations, and custom **MCP (Model Context Protocol)** tool servers, all wrapped in a Streamlit UI.
+A Retrieval-Augmented Generation (RAG) medical Q&A chatbot. It answers health-related questions by retrieving relevant passages from a medical reference book and generating concise, grounded answers with an LLM — served through a Flask web app with a simple chat UI, deployed on **Render**.
 
 ---
 
 ## 📖 About
 
-This project demonstrates how to build a stateful chatbot using LangGraph's `StateGraph`, going from a minimal single-node chatbot up to a full-featured assistant that can search the web, look up stock prices, track expenses, and do arithmetic, all through pluggable tools.
-
-The repo includes several progressively richer versions of the frontend/backend so you can see how the architecture evolves:
-
-- A basic request/response chatbot
-- A streaming version (token-by-token output)
-- A multi-thread version (multiple saved conversations)
-- A full version combining threading, streaming, tool calls, and persistent (SQLite-backed) memory
+This project ingests a medical textbook (PDF), splits it into chunks, embeds those chunks, and stores the embeddings in a **Pinecone** vector index. At query time, the user's question is embedded, the most relevant chunks are retrieved from Pinecone, and a **Groq**-hosted LLM generates a short, context-grounded answer using LangChain's retrieval-chain utilities. The whole thing is wrapped in a **Flask** app with a browser-based chat interface.
 
 ---
 
 ## ✨ Features
 
-- **LangGraph-powered conversation graph**, a `StateGraph` with a single `chat_node` that invokes the LLM and appends to message history via `add_messages`.
-- **Groq LLM** — powered by `llama-3.3-70b-versatile` via `langchain_groq`.
-- **Conversation memory** — `InMemorySaver` for simple in-memory checkpointing, and `AsyncSqliteSaver` for persistent, multi-thread conversation history stored in SQLite.
-- **Multiple conversation threads** — start new chats and switch back to previous ones (thread IDs generated with `uuid`).
-- **Streaming responses** — assistant replies stream token-by-token into the Streamlit UI.
-- **Tool calling** — the LLM can invoke:
-  - 🔎 **Web search** via `DuckDuckGoSearchRun`
-  - 📈 **Stock price lookup** via the Alpha Vantage API
-  - 🧮 **Arithmetic operations** (add, subtract, multiply, divide, power, modulus) via a custom **MCP server** (`main.py`, built with `fastmcp`)
-  - 💰 **Expense tracking** (add / list / summarize expenses in a SQLite database) via a second custom **MCP server** (`mcp_server.py`), connected as a remote MCP tool via `MultiServerMCPClient`
-- **Streamlit frontends** - several UI variants (`frontend.py`, `frontend-streamlit.py`, `frontend_streaming.py`, `frontend_threading.py`) showing the progression from simple to full-featured.
+- 📄 **PDF ingestion pipeline** — loads a medical reference PDF (`data/Medical_book.pdf`), splits it into overlapping text chunks (`RecursiveCharacterTextSplitter`), and filters document metadata down to just the source.
+- 🧠 **Embeddings** — uses HuggingFace's hosted Inference API (`sentence-transformers/all-MiniLM-L6-v2`) rather than a local model, keeping memory usage low for lightweight/free-tier hosting.
+- 📦 **Vector storage & retrieval** — chunks are embedded and upserted into a **Pinecone** serverless index (`medical-chatbot`, cosine similarity, 384 dimensions); retrieval pulls the top-k (3) most relevant chunks per query.
+- 🤖 **LLM-powered answers** — uses `ChatGroq` (`llama-3.3-70b-versatile`) with a system prompt that instructs the model to answer only from retrieved context, admit when it doesn't know, and keep answers to three sentences or fewer.
+- 🔗 **LangChain retrieval chain** — built with `create_retrieval_chain` + `create_stuff_documents_chain` to combine retrieval and generation.
+- 💬 **Web chat UI** — a Flask app (`app.py`) serving a Bootstrap-based chat page (`templates/chat.html`, `static/style.css`) with a `/get` endpoint for message exchange.
+- ☁️ **AWS-ready** — structured as a standard Python package (`setup.py`, `runtime.txt`) suitable for deployment on AWS (e.g. EC2/Elastic Beanstalk) behind `gunicorn`.
 
 ---
 
 ## 📂 Project Structure
 
 ```
-Langgraph-Chatbot/
-├── backend.py               # Minimal LangGraph chatbot (in-memory checkpointing)
-├── database.py               # Full backend: SQLite memory, tools, MCP client, stock/search tools
-├── main.py                   # MCP server exposing arithmetic tools (fastmcp)
-├── mcp_server.py              # MCP server exposing an expense-tracker (add/list/summarize)
-├── frontend-streamlit.py      # Simplest Streamlit chat UI (uses backend.py)
-├── frontend_streaming.py      # Adds token-by-token streaming (uses backend.py)
-├── frontend_threading.py      # Adds multiple conversation threads (uses backend.py)
-├── frontend.py                 # Full UI: threading + streaming + persistent memory (uses database.py)
-└── requirements.txt
+Medical-Chatbot-with-LLMs-LangChain-Pinecone-Flask-Render/
+├── app.py                  # Flask app: loads the Pinecone index, builds the RAG chain, serves the chat UI
+├── store_index.py           # One-time ingestion script: PDF → chunks → embeddings → Pinecone index
+├── src/
+│   ├── helper.py           # PDF loading, chunking, and embeddings helper functions
+│   └── prompt.py            # System prompt for the medical Q&A assistant
+├── templates/
+│   └── chat.html            # Chat UI (Bootstrap + jQuery)
+├── static/
+│   └── style.css             # Chat UI styling
+├── data/
+│   └── Medical_book.pdf      # Source medical reference document
+├── research/
+│   └── trials.ipynb          # Exploratory notebook used during development
+├── requirements.txt
+├── runtime.txt               # Python version pin (3.11.9)
+├── setup.py                  # Local package setup
+└── LICENSE
 ```
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Python**
-- **[LangGraph](https://github.com/langchain-ai/langgraph)** — state graph orchestration & checkpointing (`InMemorySaver`, `AsyncSqliteSaver`)
-- **[LangChain](https://github.com/langchain-ai/langchain)** — messages, tools, and community integrations
-- **[Groq](https://groq.com/)** (`langchain_groq`) — fast LLM inference (`llama-3.3-70b-versatile`)
-- **[FastMCP](https://github.com/jlowin/fastmcp)** — for building the custom MCP tool servers
-- **[Streamlit](https://streamlit.io/)** — chat UI
-- **SQLite** — persistent conversation memory and expense storage
-- **DuckDuckGo Search** & **Alpha Vantage API** — external data tools
+- **Python 3.11**
+- **[LangChain](https://python.langchain.com/)** (`langchain`, `langchain-classic`, `langchain-core`, `langchain-community`, `langchain-text-splitters`) — chaining, document loading, and retrieval
+- **[LangChain Groq](https://python.langchain.com/docs/integrations/chat/groq/)** — LLM inference via Groq
+- **[LangChain Pinecone](https://python.langchain.com/docs/integrations/vectorstores/pinecone/)** / **[Pinecone](https://www.pinecone.io/)** — vector database for storing and retrieving document embeddings
+- **[LangChain HuggingFace](https://python.langchain.com/docs/integrations/text_embedding/huggingface/)** — hosted embedding inference
+- **[Flask](https://flask.palletsprojects.com/)** + **Gunicorn** — web app and production server
+- **PyPDF** — PDF parsing
+- **[Render](https://render.com/)** — deployment platform
 
 ---
 
@@ -67,8 +64,8 @@ Langgraph-Chatbot/
 
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/anushsubba101/Langgraph-Chatbot.git
-cd Langgraph-Chatbot
+git clone https://github.com/anushsubba101/Medical-Chatbot-with-LLMs-LangChain-Pinecone-Flask-Render.git
+cd Medical-Chatbot-with-LLMs-LangChain-Pinecone-Flask-Render
 ```
 
 ### 2. Create a virtual environment
@@ -80,65 +77,71 @@ source venv/bin/activate      # On Windows: venv\Scripts\activate
 ### 3. Install dependencies
 ```bash
 pip install -r requirements.txt
-pip install langgraph langchain langchain-groq langchain-community langchain-mcp-adapters streamlit python-dotenv aiosqlite fastmcp requests
 ```
-> `requirements.txt` currently only lists `fastmcp` — the command above adds the rest of what the code imports. Consider updating `requirements.txt` to pin all of these for reproducibility.
 
 ### 4. Set up environment variables
 Create a `.env` file in the project root:
 ```env
+PINECONE_API_KEY=your_pinecone_api_key_here
 GROQ_API_KEY=your_groq_api_key_here
 ```
+> `store_index.py` also references `OPENAI_API_KEY` — add it to your `.env` if you keep that line, or remove it if you're not using OpenAI.
 
-### 5. (Optional) Run the MCP tool servers
-The chatbot expects an expense-tracker MCP server reachable over HTTP (by default pointed at a deployed Railway URL in `database.py`). To run your own locally:
+### 5. Build the Pinecone index
+This ingests `data/Medical_book.pdf`, chunks it, embeds it, and creates/populates the Pinecone index. Run it once (or whenever the source document changes):
 ```bash
-python mcp_server.py      # expense-tracker MCP server
-python main.py             # arithmetic MCP server
+python store_index.py
 ```
-Update the MCP client URL in `database.py` if you're hosting the server yourself.
 
-### 6. Run the chatbot UI
-Pick whichever frontend you want to try:
+### 6. Run the app
 ```bash
-streamlit run frontend-streamlit.py   # simplest version
-streamlit run frontend_streaming.py   # with streaming
-streamlit run frontend_threading.py   # with multi-thread chats
-streamlit run frontend.py             # full version (threading + streaming + tools + persistent memory)
+python app.py
 ```
+The app runs on `http://0.0.0.0:8080` by default. Open it in your browser and start chatting.
+
+For production, serve it with Gunicorn:
+```bash
+gunicorn -b 0.0.0.0:8080 app:app
+```
+
+---
+
+## ☁️ Deploying to Render
+
+This app is deployed as a **Render Web Service**. To deploy your own copy:
+
+1. Push the repo to GitHub and create a new **Web Service** on [Render](https://render.com/), pointing it at your repo.
+2. Set the **Build Command**:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Set the **Start Command**:
+   ```bash
+   gunicorn app:app
+   ```
+4. Add the following **Environment Variables** in the Render dashboard:
+   - `PINECONE_API_KEY`
+   - `GROQ_API_KEY`
+5. Make sure your Pinecone index has already been created and populated (run `python store_index.py` locally, or as a one-off Render job) before the app goes live — `app.py` expects the `medical-chatbot` index to already exist.
+
+Render assigns a port automatically via the `PORT` environment variable; if you want to respect that rather than the hardcoded `8080` in `app.py`, update the `app.run(...)` call to use `port=int(os.environ.get("PORT", 8080))`.
 
 ---
 
 ## 📌 Prerequisites
 
-- Python 3.9+
-- A [Groq API key](https://console.groq.com/)
-- (Optional) An Alpha Vantage API key if you want to use your own key for stock lookups — the code currently includes a hardcoded demo key in `database.py`, which you should replace with your own via an environment variable.
+- Python 3.11
+- A [Pinecone](https://www.pinecone.io/) account and API key
+- A [Groq](https://console.groq.com/) API key
 
 ---
 
-## ⚠️ Notes
+## ⚠️ Disclaimer
 
-- `database.py` contains a hardcoded Alpha Vantage API key — move this to an environment variable before deploying or sharing this project publicly.
-- The MCP expense-tracker client in `database.py` points to a specific deployed Railway URL by default — swap this for your own MCP server endpoint if you're self-hosting.
-
----
-
-## 🤝 Contributing
-
-This is primarily a personal learning/portfolio project, but suggestions, issue reports, and pull requests are welcome.
+This chatbot is a demonstration project for educational purposes. It answers based on a single reference PDF and is **not** a substitute for professional medical advice, diagnosis, or treatment.
 
 ---
 
 ## 📄 License
 
-No license has been specified yet. Consider adding one (e.g., MIT) if you'd like others to freely use or build on this code.
-
----
-
-## ⭐ Acknowledgements
-
-- [LangGraph Documentation](https://langchain-ai.github.io/langgraph/)
-- [LangChain Documentation](https://python.langchain.com/)
-- [Groq](https://groq.com/)
-- [FastMCP](https://github.com/jlowin/fastmcp)
+See [`LICENSE`](./LICENSE) for details.
